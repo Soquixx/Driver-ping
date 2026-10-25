@@ -11,6 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     phone VARCHAR(255) NOT NULL UNIQUE,
+    password_hash TEXT,
     full_name VARCHAR(255),
     role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     plan VARCHAR(20) NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'paid_owner')),

@@ -34,7 +34,8 @@ export function AuthModal() {
   const [signupStep, setSignupStep] = useState<1 | 2>(1);
 
   // Sign In / Registration Credentials
-  const [email, setEmail] = useState('tshepodataboy@gmail.com');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [userId, setUserId] = useState(''); // Replaces 'Your Name' in Sign In
 
   // Step 2 Profile Onboarding
@@ -62,13 +63,13 @@ export function AuthModal() {
     setError(null);
     setSuccess(null);
 
-    if (!userId.trim() && !email.trim()) {
-      setError('Please enter your User ID or Email Address to sign in');
+    if (!email.trim()) {
+      setError('Please enter your registered email address.');
       return;
     }
 
     setIsLoading(true);
-    const res = await loginWithEmail(email.trim(), userId.trim(), 'signin');
+    const res = await loginWithEmail(email.trim(), undefined, 'signin', password);
     setIsLoading(false);
 
     if (res.success) {
@@ -89,7 +90,7 @@ export function AuthModal() {
     }
 
     setIsLoading(true);
-    const res = await loginWithEmail(email.trim(), undefined, 'signup');
+    const res = await loginWithEmail(email.trim(), undefined, 'signup', password);
     setIsLoading(false);
 
     if (res.success) {
@@ -124,7 +125,6 @@ export function AuthModal() {
 
     const updateRes = await updateUserPreferences({
       fullName: combinedFullName,
-      phone: callNumber.trim(),
       defaultProvinceCode: selectedProvince,
       defaultPlate: cleanPlate || undefined,
     });
@@ -149,9 +149,12 @@ export function AuthModal() {
   const handleGoogleSignIn = async () => {
     setError(null);
     setIsLoading(true);
-    const userEmail = email.trim() || 'tshepodataboy@gmail.com';
-    const res = await loginWithEmail(userEmail, 'Google User', authMode);
     setIsLoading(false);
+    setError('Google sign-in is not configured yet. Please use email and password.');
+    return;
+    /* Google OAuth must be configured before enabling this button. */
+    const userEmail = email.trim();
+    const res = await loginWithEmail(userEmail, 'Google User', authMode, password);
 
     if (res.success) {
       if (authMode === 'signup' || res.isNew) {
@@ -311,6 +314,7 @@ export function AuthModal() {
                       </div>
                       <input
                         type="email"
+                        required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="name@gmail.com"
@@ -319,6 +323,10 @@ export function AuthModal() {
                     </div>
                   </div>
 
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Password</label>
+                  <input type="password" required minLength={8} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#B81D39]/20 focus:border-[#B81D39]" />
+                </div>
                   <button
                     type="submit"
                     disabled={isLoading}
@@ -403,6 +411,10 @@ export function AuthModal() {
                     />
                   </div>
 
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Password</label>
+                  <input type="password" required minLength={8} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#B81D39]/20 focus:border-[#B81D39]" />
+                </div>
                   <button
                     type="submit"
                     disabled={isLoading}

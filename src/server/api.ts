@@ -5,18 +5,21 @@ import { db, DbUser } from './db.js';
 export const apiRouter = express.Router();
 
 
-// JWT Secret: uses JWT_SECRET or SUPABASE_JWT_SECRET if provided; falls back safely if absent
+// Use an explicitly configured secret in production. Never fall back to a
+// hardcoded production secret: doing so could allow token forgery across deployments.
 function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET;
-  if (secret && secret.trim().length >= 16) {
+  const secret = process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    if (!secret || secret.trim().length < 32) {
+      throw new Error(
+        'Startup blocked: JWT_SECRET must be configured with at least 32 characters in production.'
+      );
+    }
     return secret.trim();
   }
-  if (process.env.NODE_ENV === 'production') {
-    console.warn(
-      '⚠️ [Driver Ping] JWT_SECRET is not set or too short in production. Using a secure default runtime secret fallback.'
-    );
-    return 'driver_ping_prod_session_secret_default_key_2026_secure';
-  }
+
+  // Backwards-compatible local development only.
+  if (secret && secret.trim().length >= 16) return secret.trim();
   return 'driver_ping_dev_only_jwt_secret_not_for_prod';
 }
 
@@ -47,10 +50,7 @@ export function verifyToken(token: string): { sub: string; role: string; phone: 
     return null;
   }
 }
-
-// ============================================================================
 // AUTHENTICATION & AUTHORIZATION MIDDLEWARE
-// ============================================================================
 
 /**
  * Strict Authenticate Middleware:
@@ -147,7 +147,6 @@ export function formatDisplayPlate(plate: string): string {
   return norm;
 }
 
-// ============================================================================
 // 0. DATABASE & HEALTH STATUS
 apiRouter.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', uptime: process.uptime() });
@@ -164,9 +163,8 @@ apiRouter.get('/db-status', (_req: Request, res: Response) => {
   });
 });
 
-// ============================================================================
 // 1. AUTHENTICATION & DEMO OTP
-// ============================================================================
+
 
 // Predefined Hackathon Demo Accounts (prevents arbitrary ID spoofing or admin privilege escalation)
 export const ALLOWED_DEMO_ACCOUNT_IDS = new Set([
@@ -191,7 +189,9 @@ apiRouter.post('/auth/request-otp', async (req: Request, res: Response) => {
   // Security: Do NOT leak generated OTP through public API responses
   return res.json({
     success: true,
-    message: `Demo verification code simulated for ${cleanPhone}. In this hackathon demo, enter code: 123456`,
+    message: process.env.NODE_ENV === 'production'
+      ? 'If the number is eligible, a verification code will be sent.'
+      : `Demo verification code simulated for ${cleanPhone}. In this local demo, enter code: 123456`,
   });
 });
 
@@ -205,12 +205,13 @@ apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
   const cleanPhone = phone.trim();
   const otpRecord = await db.getLatestUnverifiedOtp(cleanPhone);
 
-  // Allow fixed hackathon demo code '123456' or valid database OTP
-  const isValid = code.trim() === '123456' || (otpRecord && otpRecord.code === code.trim());
+  // The fixed code is for local demos only. Production must use a generated OTP.
+  const isLocalDemoCode = process.env.NODE_ENV !== 'production' && code.trim() === '123456';
+  const isValid = isLocalDemoCode || Boolean(otpRecord && otpRecord.code === code.trim());
 
   if (!isValid) {
     return res.status(401).json({
-      error: 'Invalid verification code. For this hackathon demo, use demo code: 123456',
+      error: 'Invalid or expired verification code.',
     });
   }
 
@@ -760,9 +761,7 @@ apiRouter.post('/reports', authenticateUser, async (req: AuthenticatedRequest, r
   });
 });
 
-// ============================================================================
 // 4. ALERTS FEED & ACTIONS (RULE 6, 8, 10)
-// ============================================================================
 
 // Get alerts for the authenticated user's vehicles (STRICT REPORTER PRIVACY PROTECTED)
 apiRouter.get('/alerts', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
@@ -832,10 +831,7 @@ apiRouter.post('/alerts/:id/action', authenticateUser, async (req: Authenticated
   const updatedReport = await db.getReportById(id);
   return res.json({ success: true, status: statusToSet, report: updatedReport });
 });
-
-// ============================================================================
 // 5. ADMIN AREA (RULE 9)
-// ============================================================================
 
 // Get pending ownership verifications
 apiRouter.get('/admin/verifications', authenticateUser, requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {

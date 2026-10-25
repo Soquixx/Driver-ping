@@ -385,8 +385,12 @@ class DatabaseService {
       process.env.POSTGRES_URL;
 
     if (!connectionString) {
-      console.log('ℹ️ [Driver Ping DB] DATABASE_URL is not set.');
-      console.log('ℹ️ [Driver Ping DB] Running with in-memory persistence and demo datasets.');
+      const message = 'DATABASE_URL (or SUPABASE_DB_URL / POSTGRES_URL) is not configured.';
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`Startup blocked: ${message} Production requires persistent PostgreSQL.`);
+      }
+      console.log(`ℹ️ [Driver Ping DB] ${message}`);
+      console.log('ℹ️ [Driver Ping DB] Running with in-memory persistence and demo datasets (development only).');
       return;
     }
 
@@ -415,7 +419,10 @@ class DatabaseService {
       this.isConnected = false;
       this.connectionError = err.message || String(err);
       console.warn('⚠️ [Driver Ping DB] Failed to connect to Supabase PostgreSQL:', this.connectionError);
-      console.log('ℹ️ [Driver Ping DB] Falling back to safe in-memory store with demo datasets.');
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`Startup blocked: PostgreSQL connection failed: ${this.connectionError}`);
+      }
+      console.log('ℹ️ [Driver Ping DB] Falling back to in-memory store with demo datasets (development only).');
     }
   }
 
@@ -483,6 +490,9 @@ class DatabaseService {
       }
     } catch (err: any) {
       console.error('⚠️ [Driver Ping DB] Error bootstrapping Supabase schema:', err.message);
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`Startup blocked: database schema initialization failed: ${err.message}`);
+      }
     }
   }
 
@@ -594,9 +604,7 @@ class DatabaseService {
     }
   }
 
-  // ==========================================================================
   // USERS & AUTHENTICATION
-  // ==========================================================================
 
   public async getUserById(id: string): Promise<DbUser | null> {
     await this.waitForInit();
@@ -739,9 +747,7 @@ class DatabaseService {
     return this.memory.users;
   }
 
-  // ==========================================================================
   // OTPS
-  // ==========================================================================
 
   public async createOtp(phone: string, code: string, expiresAt: string): Promise<DbOtp> {
     await this.waitForInit();
@@ -810,9 +816,7 @@ class DatabaseService {
     if (record) record.verified = true;
   }
 
-  // ==========================================================================
   // VEHICLES & DRIVERS
-  // ==========================================================================
 
   public async getVehiclesForUser(userId: string): Promise<any[]> {
     await this.waitForInit();
@@ -1125,9 +1129,7 @@ class DatabaseService {
     return true;
   }
 
-  // ==========================================================================
   // TRUSTED CONTACTS
-  // ==========================================================================
 
   public async createTrustedContact(data: {
     vehicleId: string;
@@ -1187,9 +1189,7 @@ class DatabaseService {
     return this.memory.trustedContacts.length < lenBefore;
   }
 
-  // ==========================================================================
   // OWNERSHIP VERIFICATION (RULE 4)
-  // ==========================================================================
 
   public async createOwnershipVerification(data: {
     vehicleId: string;
@@ -1370,9 +1370,7 @@ class DatabaseService {
     return true;
   }
 
-  // ==========================================================================
   // REPORTS & PRIVACY PROTECTION
-  // ==========================================================================
 
   public async getRecentReportsByUser(userId: string, sinceIso: string): Promise<DbReport[]> {
     await this.waitForInit();
@@ -1776,10 +1774,7 @@ class DatabaseService {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
-
-  // ==========================================================================
   // HELPERS
-  // ==========================================================================
 
   private mapUserRow(row: any): DbUser {
     return {

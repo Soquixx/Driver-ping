@@ -462,6 +462,8 @@ class DatabaseService {
         console.log('🔄 [Driver Ping DB] Applying schema.sql to Supabase database...');
         await this.pool.query(schemaSql);
         
+        await this.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT');
+
         // Ensure column size migrations for email/phone support & demo alert photo backfill
         await this.pool.query(`
           ALTER TABLE users ALTER COLUMN phone TYPE VARCHAR(255);
@@ -633,6 +635,19 @@ class DatabaseService {
       return this.mapUserRow(res.rows[0]);
     }
     return this.memory.users.find((u) => u.phone === cleanPhone) || null;
+  }
+
+  public async getPasswordHash(email: string): Promise<string | null> {
+    await this.waitForInit();
+    if (!this.isUsingPostgres()) return null;
+    const result = await this.pool!.query('SELECT password_hash FROM users WHERE LOWER(phone) = LOWER($1)', [email.trim()]);
+    return result.rows[0]?.password_hash || null;
+  }
+
+  public async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.waitForInit();
+    if (!this.isUsingPostgres()) throw new Error('Persistent database is required for password authentication.');
+    await this.pool!.query('UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1', [userId, passwordHash]);
   }
 
   public async createUser(data: {

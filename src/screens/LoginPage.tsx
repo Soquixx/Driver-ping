@@ -37,7 +37,8 @@ export function LoginPage() {
   const [signupStep, setSignupStep] = useState<1 | 2>(1);
 
   // Sign In / Registration Form State
-  const [email, setEmail] = useState('tshepodataboy@gmail.com');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [userId, setUserId] = useState(''); // Replaces 'Your Name' in Sign In
 
   // Step 2 Onboarding Fields
@@ -63,13 +64,13 @@ export function LoginPage() {
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!userId.trim() && !email.trim()) {
-      setErrorMsg('Please enter your User ID or Email Address to sign in.');
+    if (!email.trim()) {
+      setErrorMsg('Please enter your registered email address.');
       return;
     }
 
     setSubmitting(true);
-    const res = await loginWithEmail(email.trim(), userId.trim(), 'signin');
+    const res = await loginWithEmail(email.trim(), undefined, 'signin', password);
     setSubmitting(false);
 
     if (res.success) {
@@ -95,7 +96,7 @@ export function LoginPage() {
     }
 
     setSubmitting(true);
-    const res = await loginWithEmail(email.trim(), undefined, 'signup');
+    const res = await loginWithEmail(email.trim(), undefined, 'signup', password);
     setSubmitting(false);
 
     if (res.success) {
@@ -131,7 +132,6 @@ export function LoginPage() {
 
     const updateRes = await updateUserPreferences({
       fullName: combinedFullName,
-      phone: callNumber.trim(),
       defaultProvinceCode: selectedProvince,
       defaultPlate: cleanPlate || undefined,
     });
@@ -156,9 +156,12 @@ export function LoginPage() {
   const handleGoogleSignIn = async () => {
     setErrorMsg(null);
     setSubmitting(true);
-    const userEmail = email.trim() || 'tshepodataboy@gmail.com';
-    const res = await loginWithEmail(userEmail, 'Google User', authMode);
     setSubmitting(false);
+    setErrorMsg('Google sign-in is not configured yet. Please use email and password.');
+    return;
+    /* Google OAuth must be configured before enabling this button. */
+    const userEmail = email.trim();
+    const res = await loginWithEmail(userEmail, 'Google User', authMode, password);
 
     if (res.success) {
       if (authMode === 'signup' || res.isNew) {
@@ -337,6 +340,7 @@ export function LoginPage() {
                     </div>
                     <input
                       type="email"
+                      required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="name@example.com"
@@ -345,6 +349,10 @@ export function LoginPage() {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">Password</label>
+                  <input type="password" required minLength={8} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#941329]/30 focus:border-[#941329]" />
+                </div>
                 <button
                   type="submit"
                   disabled={submitting || isLoading}
@@ -441,6 +449,10 @@ export function LoginPage() {
                   </p>
                 </div>
 
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">Password</label>
+                  <input type="password" required minLength={8} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#941329]/30 focus:border-[#941329]" />
+                </div>
                 <button
                   type="submit"
                   disabled={submitting || isLoading}
@@ -615,7 +627,7 @@ export function LoginPage() {
           {/* ============================================================ */}
           {/* DEMO ACCESS SECTION */}
           {/* ============================================================ */}
-          {signupStep === 1 && (
+          {!import.meta.env.PROD && signupStep === 1 && (
             <div>
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">

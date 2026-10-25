@@ -15,7 +15,10 @@ async function startServer() {
   try {
     await db.waitForInit();
   } catch (err: any) {
-    console.warn('⚠️ [Server Startup] Database initialization warning:', err?.message || err);
+    console.error('❌ [Server Startup] Initialization failed:', err?.message || err);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
   }
 
   const app = express();

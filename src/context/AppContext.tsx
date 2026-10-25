@@ -43,7 +43,7 @@ interface AppContextType {
   
   // Auth methods
   loginAsDemo: (userId?: string) => Promise<void>;
-  loginWithEmail: (email: string, fullNameOrUserId?: string, mode?: 'signin' | 'signup') => Promise<{ success: boolean; isNew?: boolean; user?: User; error?: string }>;
+  loginWithEmail: (email: string, fullNameOrUserId?: string, mode?: 'signin' | 'signup', password?: string) => Promise<{ success: boolean; isNew?: boolean; user?: User; error?: string }>;
   requestOtp: (phone: string) => Promise<{ success: boolean; message: string; debugCode?: string; error?: string }>;
   verifyOtp: (phone: string, code: string, fullName?: string) => Promise<{ success: boolean; error?: string }>;
   switchAccount: (userId: string) => Promise<void>;
@@ -174,6 +174,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const meRes = await fetch('/api/auth/me', { headers: getHeaders(token) });
       if (meRes.ok) {
         const meData = await meRes.json();
+        if (['usr_alex_001', 'usr_jordan_002', 'usr_admin_003'].includes(meData.user?.id)) {
+          localStorage.removeItem('driver_ping_token');
+          setAuthToken(null);
+          setUser(null);
+          setCurrentUserId('');
+          setIsLoading(false);
+          return;
+        }
         setUser(meData.user);
         setCurrentUserId(meData.user.id);
         await loadUserData(token);
@@ -313,7 +321,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const loginWithEmail = async (
     email: string,
     fullNameOrUserId?: string,
-    mode: 'signin' | 'signup' = 'signin'
+    mode: 'signin' | 'signup' = 'signin',
+    password?: string
   ) => {
     try {
       setIsLoading(true);
@@ -325,6 +334,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           fullName: mode === 'signup' ? fullNameOrUserId : undefined,
           userId: mode === 'signin' ? fullNameOrUserId : undefined,
           mode,
+          password,
         }),
       });
       const data = await res.json();

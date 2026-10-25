@@ -1,5 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+const scrypt = promisify(scryptCallback);
 import { db, DbUser } from './db.js';
 
 export const apiRouter = express.Router();
@@ -79,6 +82,10 @@ export async function authenticateUser(
   }
 
   const user = await db.getUserById(payload.sub);
+  if (process.env.NODE_ENV === 'production' && user && ['usr_alex_001', 'usr_jordan_002', 'usr_admin_003'].includes(user.id)) {
+    res.status(401).json({ error: 'Demo sessions are disabled in production. Please sign in with your account.' });
+    return;
+  }
   if (!user) {
     res.status(401).json({ error: 'User account not found.' });
     return;
@@ -253,77 +260,48 @@ apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
   });
 });
 
-// Email / Gmail Sign In & Registration (Supports User ID & Email with instant auto-provisioning)
+// Email/password authentication. Never auto-provision an account during sign-in.
 apiRouter.post('/auth/email-login', async (req: Request, res: Response) => {
-  const { email, fullName, userId, mode } = req.body;
-  const cleanUserId = typeof userId === 'string' ? userId.trim() : '';
-  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  try {
+    const { email, password, fullName, mode } = req.body;
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address.' });
+    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    if (mode !== 'signup' && mode !== 'signin') return res.status(400).json({ error: 'Invalid authentication mode.' });
+    if (!db.isUsingPostgres()) return res.status(503).json({ error: 'Account authentication requires the connected database.' });
 
-  if (!cleanUserId && !cleanEmail) {
-    return res.status(400).json({ error: 'Please enter your User ID or Email address.' });
-  }
-
-  let user: DbUser | null = null;
-  let isNew = false;
-
-  // 1. Check by User ID if provided
-  if (cleanUserId) {
-    user = await db.getUserById(cleanUserId);
-    if (!user) {
-      user = await db.getUserByPhone(cleanUserId);
+    let user = await db.getUserByPhone(cleanEmail);
+    if (mode === 'signup') {
+      if (user) return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+      const salt = randomBytes(16).toString('hex');
+      const key = (await scrypt(password, salt, 64)) as Buffer;
+      const passwordHash = `scrypt:${salt}:${key.toString('hex')}`;
+      user = await db.createUser({ phone: cleanEmail, fullName: typeof fullName === 'string' && fullName.trim() ? fullName.trim() : cleanEmail.split('@')[0], role: 'user', plan: 'free' });
+      await db.setPasswordHash(user.id, passwordHash);
+      await db.createAuditLog({ actorId: user.id, actionType: 'USER_REGISTERED_EMAIL', targetId: user.id, targetType: 'user', detailsJson: { email: cleanEmail } });
+    } else {
+      if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
+      const stored = await db.getPasswordHash(cleanEmail);
+      if (!stored) return res.status(401).json({ error: 'This account has no password set. Please sign up with this email or use the configured recovery process.' });
+      const [scheme, salt, hash] = stored.split(':');
+      if (scheme !== 'scrypt' || !salt || !hash) return res.status(401).json({ error: 'Invalid email or password.' });
+      const candidate = (await scrypt(password, salt, 64)) as Buffer;
+      const expected = Buffer.from(hash, 'hex');
+      if (candidate.length !== expected.length || !timingSafeEqual(candidate, expected)) return res.status(401).json({ error: 'Invalid email or password.' });
     }
+    const token = generateToken(user);
+    return res.json({ success: true, token, user, isNew: mode === 'signup' });
+  } catch (error) {
+    console.error('[Auth] Email/password authentication failed:', error);
+    return res.status(500).json({ error: 'Authentication failed. Please try again.' });
   }
-
-  // 2. Check by Email if provided
-  if (!user && cleanEmail) {
-    user = await db.getUserByPhone(cleanEmail);
-    if (!user) {
-      user = await db.getUserById(cleanEmail);
-    }
-  }
-
-  // 3. If no user found, but valid email address is provided, auto-create driver account for seamless sign in
-  if (!user && cleanEmail && cleanEmail.includes('@')) {
-    const emailNamePart = cleanEmail.split('@')[0];
-    const formattedName = fullName?.trim() || emailNamePart.charAt(0).toUpperCase() + emailNamePart.slice(1);
-
-    user = await db.createUser({
-      phone: cleanEmail,
-      fullName: formattedName,
-      role: 'user',
-      plan: 'free',
-      smsOptIn: false,
-      smsMonthlyCapPence: 500,
-    });
-    isNew = true;
-
-    await db.createAuditLog({
-      actorId: user.id,
-      actionType: 'USER_REGISTERED_EMAIL',
-      targetId: user.id,
-      targetType: 'user',
-      detailsJson: { email: cleanEmail, note: 'Email/Gmail instant sign-in' },
-    });
-  }
-
-  if (!user) {
-    return res.status(404).json({
-      error: 'No account found matching this User ID. Please check your ID or enter your Email address.',
-    });
-  }
-
-  const token = generateToken(user);
-  return res.json({
-    success: true,
-    token,
-    user,
-    isNew,
-  });
 });
-
 
 // Secure Demo Account Login (Allows ONLY predefined demo accounts, and only if guest or already in a demo account)
 apiRouter.post('/auth/demo-login', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Demo login is disabled in production. Please use email and password.' });
+  }
   // If the user is currently authenticated with a real (non-demo) account, block switching
   if (req.user && !ALLOWED_DEMO_ACCOUNT_IDS.has(req.user.id)) {
     return res.status(403).json({

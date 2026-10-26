@@ -43,7 +43,7 @@ interface AppContextType {
   
   // Auth methods
   loginAsDemo: (userId?: string) => Promise<void>;
-  loginWithEmail: (email: string, fullNameOrUserId?: string, mode?: 'signin' | 'signup', password?: string) => Promise<{ success: boolean; isNew?: boolean; user?: User; error?: string }>;
+  loginWithEmail: (email: string, fullNameOrUserId?: string, mode?: 'signin' | 'signup', password?: string) => Promise<{ success: boolean; isNew?: boolean; user?: User; error?: string; requiresEmailConfirmation?: boolean; message?: string }>;
   requestOtp: (phone: string) => Promise<{ success: boolean; message: string; debugCode?: string; error?: string }>;
   verifyOtp: (phone: string, code: string, fullName?: string) => Promise<{ success: boolean; error?: string }>;
   switchAccount: (userId: string) => Promise<void>;
@@ -339,6 +339,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (!res.ok) return { success: false, error: data.error || 'Failed to sign in' };
+      if (data.requiresEmailConfirmation) {
+        return { success: true, requiresEmailConfirmation: true, message: data.message || 'Check your email to confirm your account before signing in.' };
+      }
+      if (!data.token || !data.user) return { success: false, error: 'Authentication response was incomplete. Please try again.' };
 
       setAuthToken(data.token);
       if (typeof window !== 'undefined') {

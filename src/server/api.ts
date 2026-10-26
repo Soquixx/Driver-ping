@@ -287,21 +287,21 @@ apiRouter.post('/auth/email-login', async (req: Request, res: Response) => {
     if (!db.isUsingPostgres()) return res.status(503).json({ error: 'Account authentication requires the connected database.' });
 
     if (mode === 'signup') {
-      const { response, data } = await supabaseAuthRequest('signup', {
-        email: cleanEmail,
-        password,
-        data: { full_name: typeof fullName === 'string' && fullName.trim() ? fullName.trim() : cleanEmail.split('@')[0] },
-      });
+      const { response, data } = await supabaseAuthRequest(
+        `signup?redirect_to=${encodeURIComponent('https://driver-ping-9vig.onrender.com')}`,
+        {
+          email: cleanEmail,
+          password,
+          data: { full_name: typeof fullName === 'string' && fullName.trim() ? fullName.trim() : cleanEmail.split('@')[0] },
+        }
+      );
       if (!response.ok) {
         const detail = String(data.msg || data.message || data.error_description || data.error || '').toLowerCase();
         if (response.status === 429) return res.status(429).json({ error: 'Too many attempts. Please wait a little and try again.' });
         if (detail.includes('already') || detail.includes('registered') || detail.includes('exists')) {
           return res.status(409).json({ error: 'An account with this email may already exist. Try signing in or check your confirmation email.' });
         }
-        console.error('[Auth] Supabase signup rejected:', response.status, {
-          code: data.code,
-          message: data.msg || data.message || data.error_description || data.error,
-        });
+        console.error('[Auth] Supabase signup rejected:', response.status, data.code || data.error || 'unknown');
         return res.status(400).json({ error: 'Could not create the account. Check the email and password, then try again.' });
       }
 

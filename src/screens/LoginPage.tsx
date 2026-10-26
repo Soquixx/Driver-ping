@@ -99,8 +99,12 @@ export function LoginPage() {
     const res = await loginWithEmail(email.trim(), undefined, 'signup', password);
     setSubmitting(false);
 
-    if (res.success) {
-      // Email registration is successful! Transition to Step 2 for name, surname, call number
+    if (res.success && res.requiresEmailConfirmation) {
+      setSuccessMsg(res.message || 'Account created. Check your email for a confirmation link, then return here and sign in.');
+      setAuthMode('signin');
+      setSignupStep(1);
+      setPassword('');
+    } else if (res.success) {
       setSuccessMsg('Email registered successfully! Please complete your driver details.');
       setSignupStep(2);
     } else {

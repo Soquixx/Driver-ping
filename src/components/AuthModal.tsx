@@ -93,9 +93,13 @@ export function AuthModal() {
     const res = await loginWithEmail(email.trim(), undefined, 'signup', password);
     setIsLoading(false);
 
-    if (res.success) {
-      // Email registered! Prompt user for Name, Surname, Call Number
-      setSuccess('Email registered! Please complete your driver details.');
+    if (res.success && res.requiresEmailConfirmation) {
+      setSuccess(res.message || 'Account created. Check your email for a confirmation link, then return here and sign in.');
+      setAuthMode('signin');
+      setSignupStep(1);
+      setPassword('');
+    } else if (res.success) {
+      setSuccess('Email registered successfully! Please complete your driver details.');
       setSignupStep(2);
     } else {
       setError(res.error || 'Registration failed');

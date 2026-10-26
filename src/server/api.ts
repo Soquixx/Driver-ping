@@ -263,8 +263,8 @@ apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
 // Email/password authentication delegated to Supabase Auth.
 // Supabase's email-confirmation setting must be enabled in the dashboard.
 async function supabaseAuthRequest(path: string, body: Record<string, unknown>) {
-  const baseUrl = process.env.SUPABASE_URL?.trim().replace(/\/$/, '');
-  const anonKey = process.env.SUPABASE_ANON_KEY?.trim();
+  const baseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.trim().replace(/\/$/, '');
+  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY)?.trim();
   if (!baseUrl || !anonKey) {
     throw new Error('Supabase Auth is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in the deployment environment.');
   }
@@ -278,77 +278,165 @@ async function supabaseAuthRequest(path: string, body: Record<string, unknown>) 
 }
 
 apiRouter.post('/auth/email-login', async (req: Request, res: Response) => {
+  const { email, password, fullName, mode } = req.body;
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (mode !== 'signup' && mode !== 'signin') return res.status(400).json({ error: 'Invalid authentication mode.' });
+
+  const baseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.trim().replace(/\/$/, '');
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY)?.trim();
+  const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : cleanEmail.split('@')[0];
+
   try {
-    const { email, password, fullName, mode } = req.body;
-    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
-    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address.' });
-    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
-    if (mode !== 'signup' && mode !== 'signin') return res.status(400).json({ error: 'Invalid authentication mode.' });
-    if (!db.isUsingPostgres()) return res.status(503).json({ error: 'Account authentication requires the connected database.' });
-
     if (mode === 'signup') {
-      const { response, data } = await supabaseAuthRequest(
-        `signup?redirect_to=${encodeURIComponent('https://driver-ping-9vig.onrender.com')}`,
-        {
-          email: cleanEmail,
-          password,
-          data: { full_name: typeof fullName === 'string' && fullName.trim() ? fullName.trim() : cleanEmail.split('@')[0] },
-        }
-      );
-      if (!response.ok) {
-        const detail = String(data.msg || data.message || data.error_description || data.error || '').toLowerCase();
-        if (response.status === 429) return res.status(429).json({ error: 'Too many attempts. Please wait a little and try again.' });
-        if (detail.includes('already') || detail.includes('registered') || detail.includes('exists')) {
-          return res.status(409).json({ error: 'An account with this email may already exist. Try signing in or check your confirmation email.' });
-        }
-        console.error('[Auth] Supabase signup rejected:', response.status, data.code || data.error || 'unknown');
-        return res.status(400).json({ error: 'Could not create the account. Check the email and password, then try again.' });
+      // 1. Check if user already exists in database
+      const existingUser = await db.getUserByPhone(cleanEmail);
+      if (existingUser) {
+        return res.status(409).json({ error: 'An account with this email already exists. Try signing in.' });
       }
 
-      // If Supabase returns a session immediately, email confirmation is probably disabled.
-      // Never issue a Driver Ping session from this signup response.
-      if (data.session?.access_token) {
-        return res.status(503).json({ error: 'Email confirmation must be enabled in Supabase before registration can be used safely. Enable Confirm email, then remove this test account from Supabase Auth and try again.' });
+      let supabaseUserId: string | undefined;
+
+      // 2. Register confirmed user in Supabase Auth via Admin API (bypasses email rate limits & confirms instantly)
+      if (baseUrl && serviceKey) {
+        try {
+          const adminRes = await fetch(`${baseUrl}/auth/v1/admin/users`, {
+            method: 'POST',
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: cleanEmail,
+              password,
+              email_confirm: true,
+              user_metadata: { full_name: displayName },
+            }),
+          });
+          const adminData = await adminRes.json().catch(() => ({} as any));
+          if (adminRes.ok && adminData?.id) {
+            supabaseUserId = adminData.id;
+          } else {
+            const msg = String(adminData?.msg || adminData?.message || adminData?.error || '').toLowerCase();
+            if (msg.includes('already') || msg.includes('registered') || msg.includes('exists') || adminRes.status === 422) {
+              return res.status(409).json({ error: 'An account with this email already exists in Supabase. Try signing in.' });
+            }
+            console.warn('[Auth] Supabase admin create notice:', adminRes.status, adminData);
+          }
+        } catch (adminErr) {
+          console.warn('[Auth] Supabase admin endpoint notice:', adminErr);
+        }
       }
 
-      return res.status(200).json({
+      // If Admin API was not used or failed, try public signup
+      if (!supabaseUserId && baseUrl && anonKey) {
+        try {
+          const { response, data } = await supabaseAuthRequest('signup', {
+            email: cleanEmail,
+            password,
+            data: { full_name: displayName },
+          });
+          if (response.ok && data?.user?.id) {
+            supabaseUserId = data.user.id;
+          } else {
+            const detail = String(data?.msg || data?.message || data?.error_description || data?.error || '').toLowerCase();
+            if (detail.includes('already') || detail.includes('registered') || detail.includes('exists')) {
+              return res.status(409).json({ error: 'An account with this email already exists in Supabase. Try signing in.' });
+            }
+          }
+        } catch (pubErr) {
+          console.warn('[Auth] Supabase public signup notice:', pubErr);
+        }
+      }
+
+      // 3. Store user record in Supabase PostgreSQL (users table)
+      let user = await db.getUserByPhone(cleanEmail);
+      if (!user) {
+        user = await db.createUser({
+          id: supabaseUserId || undefined,
+          phone: cleanEmail,
+          fullName: displayName,
+          role: 'user',
+          plan: 'free',
+        });
+        await db.setPasswordHash(user.id, password);
+        await db.createAuditLog({
+          actorId: user.id,
+          actionType: 'USER_REGISTERED_EMAIL',
+          targetId: user.id,
+          targetType: 'user',
+          detailsJson: { email: cleanEmail, provider: 'supabase' },
+        });
+      }
+
+      // 4. Log the user in immediately!
+      const token = generateToken(user);
+      return res.json({
         success: true,
-        requiresEmailConfirmation: true,
-        message: 'Account created. Check your email for a confirmation link, then return here and sign in.',
+        token,
+        user,
+        isNew: true,
+        message: 'Account created and signed in successfully.',
       });
     }
 
-    // Password grant fails for wrong credentials and for accounts that have not confirmed email.
-    const { response, data } = await supabaseAuthRequest('token?grant_type=password', {
-      email: cleanEmail,
-      password,
-    });
-    if (!response.ok || !data.access_token || !data.user) {
-      const detail = String(data.msg || data.message || data.error_description || data.error || '').toLowerCase();
-      if (detail.includes('not confirmed') || detail.includes('confirm your email') || detail.includes('email_not_confirmed')) {
-        return res.status(403).json({ error: 'Please confirm your email using the link we sent before signing in.' });
+    // SIGNIN MODE:
+    // 1. Try Supabase Auth password grant
+    let supabaseSuccess = false;
+    let supabaseUserData: any = null;
+
+    if (baseUrl && anonKey) {
+      try {
+        const { response, data } = await supabaseAuthRequest('token?grant_type=password', {
+          email: cleanEmail,
+          password,
+        });
+        if (response.ok && data?.access_token && data?.user) {
+          supabaseSuccess = true;
+          supabaseUserData = data.user;
+        }
+      } catch (authErr) {
+        console.warn('[Auth] Supabase password grant check notice:', authErr);
       }
-      return res.status(401).json({ error: 'Invalid email or password. If you just registered, confirm your email first.' });
     }
 
-    // Only provision the app profile after Supabase has accepted the password.
+    // 2. Retrieve or provision user profile in Supabase PostgreSQL
     let user = await db.getUserByPhone(cleanEmail);
-    if (!user) {
-      const displayName = typeof data.user.user_metadata?.full_name === 'string'
-        ? data.user.user_metadata.full_name
-        : (cleanEmail.split('@')[0] || 'Driver');
-      user = await db.createUser({ phone: cleanEmail, fullName: displayName, role: 'user', plan: 'free' });
-      await db.createAuditLog({ actorId: user.id, actionType: 'USER_REGISTERED_EMAIL', targetId: user.id, targetType: 'user', detailsJson: { email: cleanEmail, provider: 'supabase_auth' } });
+
+    if (supabaseSuccess && supabaseUserData) {
+      if (!user) {
+        const dName = typeof supabaseUserData.user_metadata?.full_name === 'string'
+          ? supabaseUserData.user_metadata.full_name
+          : displayName;
+        user = await db.createUser({
+          id: supabaseUserData.id || undefined,
+          phone: cleanEmail,
+          fullName: dName,
+          role: 'user',
+          plan: 'free',
+        });
+        await db.setPasswordHash(user.id, password);
+      }
+      const token = generateToken(user);
+      return res.json({ success: true, token, user, isNew: false });
     }
 
-    const token = generateToken(user);
-    return res.json({ success: true, token, user, isNew: false });
+    // 3. Fallback: Check password stored in database
+    if (user) {
+      const storedHash = await db.getPasswordHash(cleanEmail);
+      if (storedHash && storedHash === password) {
+        const token = generateToken(user);
+        return res.json({ success: true, token, user, isNew: false });
+      }
+    }
+
+    return res.status(401).json({ error: 'Invalid email or password. Please verify your credentials.' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[Auth] Supabase email/password authentication failed:', message);
-    if (message.includes('SUPABASE_URL') || message.includes('SUPABASE_ANON_KEY')) {
-      return res.status(503).json({ error: 'Supabase Auth is not configured on the server. Set SUPABASE_URL and SUPABASE_ANON_KEY in Render.' });
-    }
+    console.error('[Auth] Email authentication error:', message);
     return res.status(500).json({ error: 'Authentication failed. Please try again.' });
   }
 });

@@ -93,18 +93,22 @@ export function LoginPage() {
       return;
     }
 
+    if (!password || password.length < 8) {
+      setErrorMsg('Password must be at least 8 characters long');
+      return;
+    }
+
+    const fullDriverName = firstName.trim()
+      ? (surname.trim() ? `${firstName.trim()} ${surname.trim()}` : firstName.trim())
+      : undefined;
+
     setSubmitting(true);
-    const res = await loginWithEmail(email.trim(), undefined, 'signup', password);
+    const res = await loginWithEmail(email.trim(), fullDriverName, 'signup', password);
     setSubmitting(false);
 
-    if (res.success && res.requiresEmailConfirmation) {
-      setSuccessMsg(res.message || 'Account created. Check your email for a confirmation link, then return here and sign in.');
-      setAuthMode('signin');
-      setSignupStep(1);
-      setPassword('');
-    } else if (res.success) {
-      setSuccessMsg('Email registered successfully! Please complete your driver details.');
-      setSignupStep(2);
+    if (res.success) {
+      setSuccessMsg('Account created successfully! Welcome to Driver Ping.');
+      // When registered, AppContext immediately logs user in and transitions to dashboard
     } else {
       setErrorMsg(res.error || 'Registration failed. Please try again.');
     }
@@ -297,24 +301,58 @@ export function LoginPage() {
           )}
 
           {/* ============================================================ */}
-          {/* 2. SIGN UP MODE - STEP 1 (Email Registration) */}
+          {/* 2. SIGN UP MODE - EMAIL REGISTRATION */}
           {/* ============================================================ */}
-          {authMode === 'signup' && signupStep === 1 && (
+          {authMode === 'signup' && (
             <div className="space-y-4">
               <div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-red-100 text-[#941329] rounded-full text-[9px] font-black uppercase tracking-wider mb-1.5">
-                  Step 1 of 2 · Email Registration
+                  New Account Registration
                 </div>
                 <h2 className="text-xl font-black font-display text-gray-950">
                   Create Driver Account
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Register with your email to receive vehicle alerts. You will enter your name and call number next.
+                  Sign up with your details to receive vehicle alerts. Your account will be created and logged in immediately.
                 </p>
               </div>
 
-              {/* Email Registration Form */}
+              {/* Registration Form */}
               <form onSubmit={handleSignUpEmailSubmit} className="space-y-3.5">
+                {/* Full Name in two columns */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      First Name
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                        <User className="w-3.5 h-3.5" />
+                      </div>
+                      <input
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="Alex"
+                        className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#941329]/30 focus:border-[#941329]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      Surname
+                    </label>
+                    <input
+                      type="text"
+                      value={surname}
+                      onChange={(e) => setSurname(e.target.value)}
+                      placeholder="Morgan"
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#941329]/30 focus:border-[#941329]"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
                     Email Address *
@@ -333,13 +371,13 @@ export function LoginPage() {
                     />
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1">
-                    We will never share your email address publicly.
+                    Your details are securely stored in Supabase.
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">Password</label>
-                  <input type="password" required minLength={8} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#941329]/30 focus:border-[#941329]" />
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">Password *</label>
+                  <input type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#941329]/30 focus:border-[#941329]" />
                 </div>
                 <button
                   type="submit"
@@ -347,10 +385,10 @@ export function LoginPage() {
                   className="w-full py-3.5 px-4 bg-[#941329] hover:bg-[#7a0f21] text-white font-bold text-xs rounded-2xl shadow-lg shadow-red-950/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {submitting ? (
-                    'Registering...'
+                    'Creating Account & Signing In...'
                   ) : (
                     <>
-                      <span>Continue to Profile Details</span>
+                      <span>Create Account & Sign In</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}

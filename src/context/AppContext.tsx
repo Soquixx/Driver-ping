@@ -350,10 +350,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       setCurrentUserId(data.user.id);
       setUser(data.user);
-      // For sign in, close modal; for signup caller can handle post-registration step
-      if (mode === 'signin' || !data.isNew) {
-        setIsAuthModalOpen(false);
-      }
+      // Close auth modal on successful signin or signup
+      setIsAuthModalOpen(false);
       await loadUserData(data.token);
       fetchDemoAccounts();
       return { success: true, isNew: data.isNew, user: data.user };

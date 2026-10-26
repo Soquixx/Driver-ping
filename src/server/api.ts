@@ -298,7 +298,10 @@ apiRouter.post('/auth/email-login', async (req: Request, res: Response) => {
         if (detail.includes('already') || detail.includes('registered') || detail.includes('exists')) {
           return res.status(409).json({ error: 'An account with this email may already exist. Try signing in or check your confirmation email.' });
         }
-        console.error('[Auth] Supabase signup rejected:', response.status, data.code || data.error || 'unknown');
+        console.error('[Auth] Supabase signup rejected:', response.status, {
+          code: data.code,
+          message: data.msg || data.message || data.error_description || data.error,
+        });
         return res.status(400).json({ error: 'Could not create the account. Check the email and password, then try again.' });
       }
 

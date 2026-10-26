@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   User,
   Phone,
-  Hash,
   MapPin,
   Car,
 } from 'lucide-react';
@@ -36,7 +35,6 @@ export function AuthModal() {
   // Sign In / Registration Credentials
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [userId, setUserId] = useState(''); // Replaces 'Your Name' in Sign In
 
   // Step 2 Profile Onboarding
   const [firstName, setFirstName] = useState('');
@@ -150,27 +148,6 @@ export function AuthModal() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setError(null);
-    setIsLoading(true);
-    setIsLoading(false);
-    setError('Google sign-in is not configured yet. Please use email and password.');
-    return;
-    /* Google OAuth must be configured before enabling this button. */
-    const userEmail = email.trim();
-    const res = await loginWithEmail(userEmail, 'Google User', authMode, password);
-
-    if (res.success) {
-      if (authMode === 'signup' || res.isNew) {
-        setSuccess('Google verified! Please complete your driver details.');
-        setSignupStep(2);
-      } else {
-        handleClose();
-      }
-    } else {
-      setError(res.error || 'Google Sign-In failed');
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
@@ -248,66 +225,11 @@ export function AuthModal() {
                 Sign In
               </h2>
               <p className="text-xs text-gray-500 mt-1">
-                Enter your User ID or registered Email address.
+                Enter your registered Email address and password.
               </p>
 
               <div className="mt-4 space-y-3">
-                {/* Google One-Tap */}
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={handleGoogleSignIn}
-                  className="w-full py-3 px-4 bg-white hover:bg-gray-50 text-gray-800 font-extrabold text-xs rounded-2xl border-2 border-gray-200 shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>Continue with Google / Gmail</span>
-                </button>
-
-                <div className="relative my-2">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200"></div>
-                  </div>
-                  <div className="relative flex justify-center text-[10px] font-extrabold uppercase tracking-widest">
-                    <span className="bg-white px-2 text-gray-400">OR</span>
-                  </div>
-                </div>
-
                 <form onSubmit={handleSignInSubmit} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                      User ID
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                        <Hash className="w-4 h-4" />
-                      </div>
-                      <input
-                        type="text"
-                        value={userId}
-                        onChange={(e) => setUserId(e.target.value)}
-                        placeholder="e.g. usr_alex_001"
-                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#B81D39]/20 focus:border-[#B81D39]"
-                      />
-                    </div>
-                  </div>
-
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                       Email Address
@@ -364,42 +286,6 @@ export function AuthModal() {
               </p>
 
               <div className="mt-4 space-y-3">
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={handleGoogleSignIn}
-                  className="w-full py-3 px-4 bg-white hover:bg-gray-50 text-gray-800 font-extrabold text-xs rounded-2xl border-2 border-gray-200 shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>Sign up with Google / Gmail</span>
-                </button>
-
-                <div className="relative my-2">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200"></div>
-                  </div>
-                  <div className="relative flex justify-center text-[10px] font-extrabold uppercase tracking-widest">
-                    <span className="bg-white px-2 text-gray-400">OR</span>
-                  </div>
-                </div>
-
                 <form onSubmit={handleSignUpEmailSubmit} className="space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">

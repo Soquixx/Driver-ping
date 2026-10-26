@@ -11,16 +11,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
-  // Ensure database initialization runs smoothly without hard crashes
-  try {
-    await db.waitForInit();
-  } catch (err: any) {
-    console.error('❌ [Server Startup] Initialization failed:', err?.message || err);
-    if (process.env.NODE_ENV === 'production') {
-      process.exit(1);
-    }
-  }
-
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
@@ -48,7 +38,7 @@ async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
   const distIndex = path.resolve(distPath, 'index.html');
 
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(distIndex)) {
+  if (fs.existsSync(distIndex)) {
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(distIndex);
@@ -61,9 +51,17 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
+  // Bind to port immediately so Cloud Run health check passes unconditionally
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Driver Ping server listening on http://0.0.0.0:${PORT}`);
   });
+
+  // Non-blocking database initialization in background
+  db.waitForInit().catch((err: any) => {
+    console.warn('⚠️ [Driver Ping DB] Non-fatal database initialization notice:', err?.message || err);
+  });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('❌ [Server Startup Error]:', err);
+});

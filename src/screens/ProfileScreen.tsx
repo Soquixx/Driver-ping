@@ -206,8 +206,8 @@ export function ProfileScreen() {
                   {user.role === 'admin' ? 'Admin' : user.plan === 'paid_owner' ? 'Owner' : 'Driver'}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 font-mono truncate mt-0.5">
-                @{user.id}
+              <p className="text-xs text-gray-500 truncate mt-0.5">
+                {user.email || 'Verified Account'}
               </p>
             </div>
           </div>
@@ -359,15 +359,6 @@ export function ProfileScreen() {
             )}
 
             <form onSubmit={handleSaveProfile} className="space-y-3.5">
-              <div>
-                <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1">
-                  Unique User ID
-                </label>
-                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-200 font-mono text-xs font-bold text-gray-800 select-all">
-                  {user.id}
-                </div>
-              </div>
-
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1">
                   Full Name / Display Name

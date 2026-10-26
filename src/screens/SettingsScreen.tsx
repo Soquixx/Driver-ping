@@ -628,9 +628,11 @@ export function SettingsScreen() {
               <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-900">{user.fullName}</span>
-                  <span className="text-[10px] font-mono bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-600">
-                    ID: {user.id}
-                  </span>
+                  {user.email && (
+                    <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-600 truncate max-w-[160px]">
+                      {user.email}
+                    </span>
+                  )}
                 </div>
                 {user.phone && (
                   <p className="text-[11px] text-gray-500 font-mono">

@@ -1033,6 +1033,64 @@ class DatabaseService {
       });
   }
 
+  public async getUsersForPlate(plateNormalized: string): Promise<DbUser[]> {
+    await this.waitForInit();
+    const norm = plateNormalized.trim().toUpperCase().replace(/[\s-]/g, '');
+    if (this.isUsingPostgres()) {
+      const res = await this.pool!.query(
+        `SELECT DISTINCT u.id, u.phone, u.full_name, u.role, u.plan, u.sms_opt_in, u.sms_monthly_cap_pence, u.sms_current_spend_pence, u.default_plate, u.default_province_code, u.created_at, u.updated_at
+         FROM users u
+         LEFT JOIN vehicle_drivers vd ON vd.user_id = u.id AND vd.status = 'approved'
+         LEFT JOIN vehicles v ON v.id = vd.vehicle_id OR v.verified_owner_id = u.id
+         WHERE REPLACE(REPLACE(UPPER(u.default_plate), ' ', ''), '-', '') = $1
+            OR REPLACE(REPLACE(UPPER(v.plate_normalized), ' ', ''), '-', '') = $1`,
+        [norm]
+      );
+      return res.rows.map((r) => this.mapUserRow(r));
+    }
+
+    // In-memory fallback
+    const matchedUsers: DbUser[] = [];
+    const seenIds = new Set<string>();
+
+    for (const u of this.memory.users) {
+      if (u.defaultPlate) {
+        const userPlateNorm = u.defaultPlate.trim().toUpperCase().replace(/[\s-]/g, '');
+        if (userPlateNorm === norm && !seenIds.has(u.id)) {
+          seenIds.add(u.id);
+          matchedUsers.push(u);
+        }
+      }
+    }
+
+    const matchedVehicles = this.memory.vehicles.filter(
+      (v) => v.plateNormalized.trim().toUpperCase().replace(/[\s-]/g, '') === norm
+    );
+    for (const veh of matchedVehicles) {
+      if (veh.verifiedOwnerId && !seenIds.has(veh.verifiedOwnerId)) {
+        const owner = this.memory.users.find((u) => u.id === veh.verifiedOwnerId);
+        if (owner) {
+          seenIds.add(owner.id);
+          matchedUsers.push(owner);
+        }
+      }
+      const approvedDrivers = this.memory.vehicleDrivers.filter(
+        (vd) => vd.vehicleId === veh.id && vd.status === 'approved'
+      );
+      for (const vd of approvedDrivers) {
+        if (!seenIds.has(vd.userId)) {
+          const drvUser = this.memory.users.find((u) => u.id === vd.userId);
+          if (drvUser) {
+            seenIds.add(drvUser.id);
+            matchedUsers.push(drvUser);
+          }
+        }
+      }
+    }
+
+    return matchedUsers;
+  }
+
   public async getVehicleByPlate(plateNormalized: string): Promise<DbVehicle | null> {
     await this.waitForInit();
     const norm = plateNormalized.trim().toUpperCase();
@@ -1582,9 +1640,9 @@ class DatabaseService {
   public async getSanitizedAlertsForUser(userId: string): Promise<any[]> {
     await this.waitForInit();
     if (this.isUsingPostgres()) {
-      // Find all vehicles where the user is an approved driver or owner
+      // Find all reports matching vehicles where user is driver/owner OR matching user's default_plate OR delivered via delivery_logs
       const res = await this.pool!.query(
-        `SELECT
+        `SELECT DISTINCT
             r.id,
             r.plate_normalized,
             r.category,
@@ -1597,9 +1655,8 @@ class DatabaseService {
             r.dispute_reason,
             r.abuse_reason,
             r.created_at,
-            v.plate_display,
-            v.make,
-            v.model,
+            COALESCE(v.plate_display, u.default_plate, r.plate_normalized) as plate_display,
+            COALESCE(CONCAT(v.make, ' ', v.model), 'Registered Vehicle') as vehicle_make_model,
             EXISTS(
               SELECT 1 FROM delivery_logs dl 
               WHERE dl.report_id = r.id AND dl.recipient_user_id = $1 AND dl.status = 'delivered'
@@ -1609,10 +1666,19 @@ class DatabaseService {
               WHERE dl.report_id = r.id AND dl.recipient_user_id = $1 AND dl.status = 'delivered'
             ) as delivered_at
          FROM reports r
-         JOIN vehicles v ON v.plate_normalized = r.plate_normalized
-         WHERE EXISTS (
-           SELECT 1 FROM vehicle_drivers vd 
-           WHERE vd.vehicle_id = v.id AND vd.user_id = $1 AND vd.status = 'approved'
+         LEFT JOIN vehicles v ON REPLACE(REPLACE(UPPER(v.plate_normalized), ' ', ''), '-', '') = REPLACE(REPLACE(UPPER(r.plate_normalized), ' ', ''), '-', '')
+         LEFT JOIN users u ON u.id = $1
+         WHERE (
+           EXISTS (
+             SELECT 1 FROM vehicle_drivers vd 
+             WHERE vd.vehicle_id = v.id AND vd.user_id = $1 AND vd.status = 'approved'
+           )
+           OR v.verified_owner_id = $1
+           OR (u.default_plate IS NOT NULL AND u.default_plate != '' AND REPLACE(REPLACE(UPPER(u.default_plate), ' ', ''), '-', '') = REPLACE(REPLACE(UPPER(r.plate_normalized), ' ', ''), '-', ''))
+           OR EXISTS (
+             SELECT 1 FROM delivery_logs dl
+             WHERE dl.report_id = r.id AND dl.recipient_user_id = $1
+           )
          )
          ORDER BY r.created_at DESC`,
         [userId]
@@ -1622,7 +1688,7 @@ class DatabaseService {
       return res.rows.map((r) => ({
         id: r.id,
         plateDisplay: r.plate_display,
-        vehicleMakeModel: `${r.make} ${r.model}`,
+        vehicleMakeModel: r.vehicle_make_model?.trim() || 'Vehicle',
         category: r.category,
         issueCode: r.issue_code,
         issueTitle: r.issue_title,
@@ -1641,23 +1707,45 @@ class DatabaseService {
     }
 
     // In-memory fallback
+    const currentUser = this.memory.users.find((u) => u.id === userId);
     const userDriverRecords = this.memory.vehicleDrivers.filter(
       (vd) => vd.userId === userId && vd.status === 'approved'
     );
     const vehicleIds = userDriverRecords.map((vd) => vd.vehicleId);
-    const userVehicles = this.memory.vehicles.filter((v) => vehicleIds.includes(v.id));
-    const userPlates = new Set(userVehicles.map((v) => v.plateNormalized));
+    const userVehicles = this.memory.vehicles.filter(
+      (v) => vehicleIds.includes(v.id) || v.verifiedOwnerId === userId
+    );
 
-    const matchedReports = this.memory.reports.filter((r) => userPlates.has(r.plateNormalized));
+    const userPlates = new Set<string>();
+    for (const v of userVehicles) {
+      userPlates.add(v.plateNormalized.trim().toUpperCase().replace(/[\s-]/g, ''));
+    }
+    if (currentUser?.defaultPlate) {
+      userPlates.add(currentUser.defaultPlate.trim().toUpperCase().replace(/[\s-]/g, ''));
+    }
+
+    const userDeliveredReportIds = new Set(
+      this.memory.deliveryLogs
+        .filter((dl) => dl.recipientUserId === userId)
+        .map((dl) => dl.reportId)
+    );
+
+    const matchedReports = this.memory.reports.filter(
+      (r) =>
+        userPlates.has(r.plateNormalized.trim().toUpperCase().replace(/[\s-]/g, '')) ||
+        userDeliveredReportIds.has(r.id)
+    );
 
     return matchedReports.map((r) => {
-      const veh = userVehicles.find((v) => v.plateNormalized === r.plateNormalized);
+      const veh = userVehicles.find(
+        (v) => v.plateNormalized.trim().toUpperCase().replace(/[\s-]/g, '') === r.plateNormalized.trim().toUpperCase().replace(/[\s-]/g, '')
+      );
       const delLogs = this.memory.deliveryLogs.filter((dl) => dl.reportId === r.id);
       const userDel = delLogs.find((dl) => dl.recipientUserId === userId && dl.status === 'delivered');
 
       return {
         id: r.id,
-        plateDisplay: veh ? veh.plateDisplay : r.plateNormalized,
+        plateDisplay: veh ? veh.plateDisplay : (currentUser?.defaultPlate || r.plateNormalized),
         vehicleMakeModel: veh ? `${veh.make} ${veh.model}` : 'Vehicle',
         category: r.category,
         issueCode: r.issueCode,

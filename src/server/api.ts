@@ -797,29 +797,26 @@ apiRouter.post('/reports', authenticateUser, async (req: AuthenticatedRequest, r
     idempotencyKey,
   });
 
-  // Delivery handling (Rule 10: "Never say an alert was delivered unless the system actually recorded that it was")
-  const vehicle = await db.getVehicleByPlate(norm);
-  const registeredDrivers = vehicle ? await db.getApprovedDriversForVehicle(vehicle.id) : [];
+  // Delivery handling: Find all users whose registered plate or vehicle matches this report's number plate
+  const targetUsers = await db.getUsersForPlate(norm);
 
   let deliveryCount = 0;
   let queuedUnclaimed = false;
 
-  if (registeredDrivers.length > 0) {
-    for (const driver of registeredDrivers) {
-      const recipientUser = await db.getUserById(driver.userId);
-
-      // In-app delivery log
+  if (targetUsers.length > 0) {
+    for (const recipientUser of targetUsers) {
+      // In-app delivery log for each user whose registered plate matches
       await db.createDeliveryLog({
         reportId: report.id,
         channel: 'in_app',
-        recipientUserId: driver.userId,
+        recipientUserId: recipientUser.id,
         status: 'delivered',
         costPence: 0,
       });
       deliveryCount++;
 
       // SMS Delivery if recipient opted in and within spending limit (Rule 7)
-      if (recipientUser && recipientUser.smsOptIn) {
+      if (recipientUser.smsOptIn) {
         const smsCost = 15; // 15p per SMS (R1.50)
         if (recipientUser.smsCurrentSpendPence + smsCost <= recipientUser.smsMonthlyCapPence) {
           await db.updateUserPreferences(recipientUser.id, {
@@ -828,7 +825,7 @@ apiRouter.post('/reports', authenticateUser, async (req: AuthenticatedRequest, r
           await db.createDeliveryLog({
             reportId: report.id,
             channel: 'sms',
-            recipientUserId: driver.userId,
+            recipientUserId: recipientUser.id,
             status: 'delivered',
             costPence: smsCost,
           });
@@ -837,7 +834,7 @@ apiRouter.post('/reports', authenticateUser, async (req: AuthenticatedRequest, r
           await db.createDeliveryLog({
             reportId: report.id,
             channel: 'sms',
-            recipientUserId: driver.userId,
+            recipientUserId: recipientUser.id,
             status: 'capped_limit',
             costPence: 0,
           });
@@ -901,17 +898,12 @@ apiRouter.post('/alerts/:id/action', authenticateUser, async (req: Authenticated
   const report = await db.getReportById(id);
   if (!report) return res.status(404).json({ error: 'Alert not found' });
 
-  // Access control: Verify recipient owns or drives this vehicle (or is admin)
-  const vehicle = await db.getVehicleByPlate(report.plateNormalized);
-  let isAuthorized = false;
-  if (vehicle) {
-    const driverRecord = await db.getVehicleDriver(vehicle.id, user.id);
-    if (driverRecord && driverRecord.status === 'approved') {
-      isAuthorized = true;
-    }
-  }
+  // Access control: Verify recipient owns or drives this vehicle, has registered plate, or is admin
+  const targetUsers = await db.getUsersForPlate(report.plateNormalized);
+  const isRecipient = targetUsers.some((u) => u.id === user.id);
+  const isAuthorized = isRecipient || user.role === 'admin';
 
-  if (!isAuthorized && user.role !== 'admin') {
+  if (!isAuthorized) {
     return res.status(403).json({ error: 'You are not authorized to update this vehicle alert' });
   }
 
